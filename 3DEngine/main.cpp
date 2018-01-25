@@ -1,3 +1,7 @@
+//--------------------------------------------------------------------------------------
+// BTH - Stefan Petersson 2014.
+//	   - modified by FLL
+//--------------------------------------------------------------------------------------
 #include <windows.h>
 
 #include <d3d11.h>
@@ -34,14 +38,306 @@ ID3D11VertexShader* gVertexShader = nullptr;
 ID3D11PixelShader* gPixelShader = nullptr;
 ID3D11GeometryShader* gGeometryShader = nullptr;
 
+
+
+using namespace DirectX;
+
+void InitalizeMatrices(float angle = 0.0f)
+{
+	struct BUFFER_DATA
+	{
+		XMMATRIX worldMatrix;
+		XMMATRIX viewMatrix;
+		XMMATRIX projectionMatrix;
+	};
+
+	XMMATRIX worldMatrix = XMMatrixTranslation(0.0f, 0.0f, 0.0f);
+	XMMATRIX shear = XMMATRIX(1.0f, 1.0f, 0.0f, 2.0f,
+		0.0f, 1.0f, 0.0f, 0.0f,
+		0.0f, 0.0f, 1.0f, 0.0f,
+		0.0f, 0.0f, 0.0f, 1.0f);
+	//worldMatrix *= shear;
+	worldMatrix *= XMMatrixRotationY(angle);
+	XMVECTOR camPos = { 0.0f, 0.0f, -2.0f };
+	XMVECTOR lookAt = { 0.0f, 0.0f, 0.0f };
+	XMVECTOR up = { 0.0f, 1.0f, 0.0f };
+	XMMATRIX viewMatrix = XMMatrixLookAtLH(camPos, lookAt, up);
+	XMMATRIX camProjection = XMMatrixPerspectiveFovLH(XM_PI * 0.45f, 640.0f / 480.0f, 0.1f, 20.0f);
+
+
+
+	worldMatrix = XMMatrixTranspose(worldMatrix);
+	viewMatrix = XMMatrixTranspose(viewMatrix);
+	camProjection = XMMatrixTranspose(camProjection);
+
+
+
+
+
+	BUFFER_DATA bufferData = { worldMatrix, viewMatrix, camProjection };
+
+	D3D11_BUFFER_DESC bufferDesc;
+	memset(&bufferDesc, 0, sizeof(bufferDesc));
+	bufferDesc.ByteWidth = sizeof(BUFFER_DATA);
+	bufferDesc.Usage = D3D11_USAGE_DYNAMIC;
+
+	bufferDesc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+	bufferDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+	bufferDesc.StructureByteStride = 0;
+	D3D11_SUBRESOURCE_DATA data;
+	data.pSysMem = &bufferData;
+	gDevice->CreateBuffer(&bufferDesc, &data, &constantBuffer);
+	gDeviceContext->GSSetConstantBuffers(0, 1, &constantBuffer);
+}
+
 HRESULT CreateShaders()
 {
-	return NULL;
+
+#pragma region Vertex
+	// Binary Large OBject (BLOB), for compiled shader, and errors.
+	ID3DBlob* pVS = nullptr;
+	ID3DBlob* errorBlob = nullptr;
+
+	// https://msdn.microsoft.com/en-us/library/windows/desktop/hh968107(v=vs.85).aspx
+	HRESULT result = D3DCompileFromFile(
+		L"Vertex.hlsl", // filename
+		nullptr,		// optional macros
+		nullptr,		// optional include files
+		"VS_main",		// entry point
+		"vs_5_0",		// shader model (target)
+		D3DCOMPILE_DEBUG,	// shader compile options (DEBUGGING)
+		0,				// IGNORE...DEPRECATED.
+		&pVS,			// double pointer to ID3DBlob		
+		&errorBlob		// pointer for Error Blob messages.
+	);
+
+	// compilation failed?
+	if (FAILED(result))
+	{
+		if (errorBlob)
+		{
+			OutputDebugStringA((char*)errorBlob->GetBufferPointer());
+			// release "reference" to errorBlob interface object
+			errorBlob->Release();
+		}
+		if (pVS)
+			pVS->Release();
+		return result;
+	}
+
+	gDevice->CreateVertexShader(
+		pVS->GetBufferPointer(),
+		pVS->GetBufferSize(),
+		nullptr,
+		&gVertexShader
+	);
+
+	// create input layout (verified using vertex shader)
+	// Press F1 in Visual Studio with the cursor over the datatype to jump
+	// to the documentation online!
+	// please read:
+	// https://msdn.microsoft.com/en-us/library/windows/desktop/bb205117(v=vs.85).aspx
+	D3D11_INPUT_ELEMENT_DESC inputDesc[] = {
+		{
+			"POSITION",		// "semantic" name in shader
+			0,				// "semantic" index (not used)
+			DXGI_FORMAT_R32G32B32_FLOAT, // size of ONE element (3 floats)
+			0,							 // input slot
+			0,							 // offset of first element
+			D3D11_INPUT_PER_VERTEX_DATA, // specify data PER vertex
+			0							 // used for INSTANCING (ignore)
+		},
+		{
+			"COLOR",
+			0,				// same slot as previous (same vertexBuffer)
+			DXGI_FORMAT_R32G32B32_FLOAT,
+			0,
+			12,							// offset of FIRST element (after POSITION)
+			D3D11_INPUT_PER_VERTEX_DATA,
+			0
+		},
+	};
+
+	gDevice->CreateInputLayout(inputDesc, ARRAYSIZE(inputDesc), pVS->GetBufferPointer(), pVS->GetBufferSize(), &gVertexLayout);
+
+	// we do not need anymore this COM object, so we release it.
+	pVS->Release();
+#pragma endregion
+
+
+
+#pragma region Pixel
+
+	//create pixel shader
+	ID3DBlob* pPS = nullptr;
+	if (errorBlob) errorBlob->Release();
+	errorBlob = nullptr;
+
+	result = D3DCompileFromFile(
+		L"Fragment.hlsl", // filename
+		nullptr,		// optional macros
+		nullptr,		// optional include files
+		"PS_main",		// entry point
+		"ps_5_0",		// shader model (target)
+		D3DCOMPILE_DEBUG,	// shader compile options
+		0,				// effect compile options
+		&pPS,			// double pointer to ID3DBlob		
+		&errorBlob			// pointer for Error Blob messages.
+	);
+
+	// compilation failed?
+	if (FAILED(result))
+	{
+		if (errorBlob)
+		{
+			OutputDebugStringA((char*)errorBlob->GetBufferPointer());
+			// release "reference" to errorBlob interface object
+			errorBlob->Release();
+		}
+		if (pPS)
+			pPS->Release();
+		return result;
+	}
+
+	gDevice->CreatePixelShader(pPS->GetBufferPointer(), pPS->GetBufferSize(), nullptr, &gPixelShader);
+	// we do not need anymore this COM object, so we release it.
+	pPS->Release();
+
+#pragma endregion
+
+
+#pragma region Geometry
+
+	//create geometry shader
+	ID3DBlob* pGS = nullptr;
+	if (errorBlob) errorBlob->Release();
+	errorBlob = nullptr;
+
+	result = D3DCompileFromFile(
+		L"Geometry.hlsl", // filename
+		nullptr,		// optional macros
+		nullptr,		// optional include files
+		"GS_main",		// entry point
+		"gs_5_0",		// shader model (target)
+		D3DCOMPILE_DEBUG,	// shader compile options
+		0,				// effect compile options
+		&pGS,			// double pointer to ID3DBlob		
+		&errorBlob			// pointer for Error Blob messages.
+	);
+
+	// compilation failed?
+	if (FAILED(result))
+	{
+		if (errorBlob)
+		{
+			OutputDebugStringA((char*)errorBlob->GetBufferPointer());
+			// release "reference" to errorBlob interface object
+			errorBlob->Release();
+		}
+		if (pGS)
+			pGS->Release();
+		return result;
+	}
+
+	gDevice->CreateGeometryShader(pGS->GetBufferPointer(), pGS->GetBufferSize(), nullptr, &gGeometryShader);
+	// we do not need anymore this COM object, so we release it.
+	pGS->Release();
+
+#pragma endregion
+
+	return S_OK;
+}
+
+void CreateTriangleData()
+{
+	struct TriangleVertex
+	{
+		float x, y, z;
+		float r, g, b;
+	};
+
+	// Array of Structs (AoS)
+	TriangleVertex triangleVertices[6] =
+	{
+		0.5f, -0.5f, 0.0f,	//v0 pos
+		1.0f, 1.0f, 0.0f,	//v0 color
+
+		-0.5f, -0.5f, 0.0f,	//v1
+		0.0f, 1.0f, 0.0f,	//v1 color
+
+		-0.5f, 0.5f, 0.0f, //v2
+		0.0f, 0.0f, 0.0f,	//v2 color
+
+		0.5f, 0.5f, 0.0f,	//v0 pos
+		1.0f, 0.0f, 0.0f,	//v0 color
+
+		0.5f, -0.5f, 0.0f,	//v1
+		1.0f, 1.0f, 0.0f,	//v1 color
+
+		-0.5f, 0.5f, 0.0f, //v2
+		0.0f, 0.0f, 0.0f,	//v2 color
+
+	};
+
+	// Describe the Vertex Buffer
+	D3D11_BUFFER_DESC bufferDesc;
+	memset(&bufferDesc, 0, sizeof(bufferDesc));
+	// what type of buffer will this be?
+	bufferDesc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+	// what type of usage (press F1, read the docs)
+	bufferDesc.Usage = D3D11_USAGE_DEFAULT;
+	// how big in bytes each element in the buffer is.
+	bufferDesc.ByteWidth = sizeof(triangleVertices);
+
+	// this struct is created just to set a pointer to the
+	// data containing the vertices.
+	D3D11_SUBRESOURCE_DATA data;
+	data.pSysMem = triangleVertices;
+
+	// create a Vertex Buffer
+	gDevice->CreateBuffer(&bufferDesc, &data, &gVertexBuffer);
 }
 
 void SetViewport()
 {
+	D3D11_VIEWPORT vp;
+	vp.Width = (float)640;
+	vp.Height = (float)480;
+	vp.MinDepth = 0.0f;
+	vp.MaxDepth = 1.0f;
+	vp.TopLeftX = 0;
+	vp.TopLeftY = 0;
+	gDeviceContext->RSSetViewports(1, &vp);
+}
 
+void Render()
+{
+	// clear the back buffer to a deep blue
+	float clearColor[] = { 0, 0, 0.1f, 1 };
+
+	// use DeviceContext to talk to the API
+	gDeviceContext->ClearRenderTargetView(gBackbufferRTV, clearColor);
+
+	// specifying NULL or nullptr we are disabling that stage
+	// in the pipeline
+	gDeviceContext->VSSetShader(gVertexShader, nullptr, 0);
+	gDeviceContext->HSSetShader(nullptr, nullptr, 0);
+	gDeviceContext->DSSetShader(nullptr, nullptr, 0);
+	gDeviceContext->GSSetShader(gGeometryShader, nullptr, 0);
+	gDeviceContext->PSSetShader(gPixelShader, nullptr, 0);
+
+	UINT32 vertexSize = sizeof(float) * 6;
+	UINT32 offset = 0;
+	// specify which vertex buffer to use next.
+	gDeviceContext->IASetVertexBuffers(0, 1, &gVertexBuffer, &vertexSize, &offset);
+
+	// specify the topology to use when drawing
+	gDeviceContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+	// specify the IA Layout (how is data passed)
+	gDeviceContext->IASetInputLayout(gVertexLayout);
+
+	// issue a draw call of 3 vertices (similar to OpenGL)
+	gDeviceContext->Draw(6, 0);
 }
 
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLine, int nCmdShow)
@@ -57,6 +353,10 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLi
 
 		CreateShaders(); //4. Skapa vertex- och pixel-shaders
 
+		CreateTriangleData(); //5. Definiera triangelvertiser, 6. Skapa vertex buffer, 7. Skapa input layout
+
+		InitalizeMatrices();
+
 		ShowWindow(wndHandle, nCmdShow);
 
 		while (WM_QUIT != msg.message)
@@ -68,6 +368,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLi
 			}
 			else
 			{
+				Render(); //8. Rendera
 				gSwapChain->Present(0, 0); //9. Växla front- och back-buffer
 			}
 		}
@@ -87,7 +388,6 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLi
 
 	return (int)msg.wParam;
 }
-
 
 HWND InitWindow(HINSTANCE hInstance)
 {
