@@ -2,13 +2,7 @@
 // BTH - Stefan Petersson 2014.
 //	   - modified by FLL
 //--------------------------------------------------------------------------------------
-#include <windows.h>
-
-#include <d3d11.h>
-#include <d3dcompiler.h>
-#include <DirectXMath.h>
-#pragma comment (lib, "d3d11.lib")
-#pragma comment (lib, "d3dcompiler.lib")
+#include "Game.h"
 HWND InitWindow(HINSTANCE hInstance);
 LRESULT CALLBACK WndProc(HWND, UINT, WPARAM, LPARAM);
 
@@ -38,9 +32,7 @@ ID3D11VertexShader* gVertexShader = nullptr;
 ID3D11PixelShader* gPixelShader = nullptr;
 ID3D11GeometryShader* gGeometryShader = nullptr;
 
-
-
-using namespace DirectX;
+Game* game;
 
 void InitalizeMatrices(float angle = 0.0f)
 {
@@ -52,10 +44,7 @@ void InitalizeMatrices(float angle = 0.0f)
 	};
 
 	XMMATRIX worldMatrix = XMMatrixTranslation(0.0f, 0.0f, 0.0f);
-	XMMATRIX shear = XMMATRIX(1.0f, 1.0f, 0.0f, 2.0f,
-		0.0f, 1.0f, 0.0f, 0.0f,
-		0.0f, 0.0f, 1.0f, 0.0f,
-		0.0f, 0.0f, 0.0f, 1.0f);
+	
 	//worldMatrix *= shear;
 	worldMatrix *= XMMatrixRotationY(angle);
 	XMVECTOR camPos = { 0.0f, 0.0f, -2.0f };
@@ -69,10 +58,6 @@ void InitalizeMatrices(float angle = 0.0f)
 	worldMatrix = XMMatrixTranspose(worldMatrix);
 	viewMatrix = XMMatrixTranspose(viewMatrix);
 	camProjection = XMMatrixTranspose(camProjection);
-
-
-
-
 
 	BUFFER_DATA bufferData = { worldMatrix, viewMatrix, camProjection };
 
@@ -310,36 +295,6 @@ void SetViewport()
 	gDeviceContext->RSSetViewports(1, &vp);
 }
 
-void Render()
-{
-	// clear the back buffer to a deep blue
-	float clearColor[] = { 0, 0, 0.1f, 1 };
-
-	// use DeviceContext to talk to the API
-	gDeviceContext->ClearRenderTargetView(gBackbufferRTV, clearColor);
-
-	// specifying NULL or nullptr we are disabling that stage
-	// in the pipeline
-	gDeviceContext->VSSetShader(gVertexShader, nullptr, 0);
-	gDeviceContext->HSSetShader(nullptr, nullptr, 0);
-	gDeviceContext->DSSetShader(nullptr, nullptr, 0);
-	gDeviceContext->GSSetShader(gGeometryShader, nullptr, 0);
-	gDeviceContext->PSSetShader(gPixelShader, nullptr, 0);
-
-	UINT32 vertexSize = sizeof(float) * 6;
-	UINT32 offset = 0;
-	// specify which vertex buffer to use next.
-	gDeviceContext->IASetVertexBuffers(0, 1, &gVertexBuffer, &vertexSize, &offset);
-
-	// specify the topology to use when drawing
-	gDeviceContext->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-	// specify the IA Layout (how is data passed)
-	gDeviceContext->IASetInputLayout(gVertexLayout);
-
-	// issue a draw call of 3 vertices (similar to OpenGL)
-	gDeviceContext->Draw(6, 0);
-}
-
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLine, int nCmdShow)
 {
 	MSG msg = { 0 };
@@ -359,6 +314,10 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLi
 
 		ShowWindow(wndHandle, nCmdShow);
 
+		game = new Game(gDevice, gDeviceContext, gVertexShader, gGeometryShader, gPixelShader, gVertexBuffer, gVertexLayout, gBackbufferRTV);
+
+		game->Initialize(wndHandle);
+
 		while (WM_QUIT != msg.message)
 		{
 			if (PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE))
@@ -368,7 +327,8 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLi
 			}
 			else
 			{
-				Render(); //8. Rendera
+				game->Update();
+				game->Render(); //8. Rendera
 				gSwapChain->Present(0, 0); //9. Växla front- och back-buffer
 			}
 		}
@@ -396,7 +356,7 @@ HWND InitWindow(HINSTANCE hInstance)
 	wcex.style = CS_HREDRAW | CS_VREDRAW;
 	wcex.lpfnWndProc = WndProc;
 	wcex.hInstance = hInstance;
-	wcex.lpszClassName = L"BTH_D3D_DEMO";
+	wcex.lpszClassName = L"3D Project";
 	if (!RegisterClassEx(&wcex))
 		return false;
 
@@ -404,8 +364,8 @@ HWND InitWindow(HINSTANCE hInstance)
 	AdjustWindowRect(&rc, WS_OVERLAPPEDWINDOW, FALSE);
 
 	HWND handle = CreateWindow(
-		L"BTH_D3D_DEMO",
-		L"BTH Direct3D Demo",
+		L"3D Project",
+		L"3D Project",
 		WS_OVERLAPPEDWINDOW,
 		CW_USEDEFAULT,
 		CW_USEDEFAULT,
@@ -423,6 +383,32 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
 	switch (message)
 	{
+	case WM_ACTIVATEAPP:
+		Keyboard::ProcessMessage(message, wParam, lParam);
+		Mouse::ProcessMessage(message, wParam, lParam);
+		break;
+
+	case WM_INPUT:
+	case WM_MOUSEMOVE:
+	case WM_LBUTTONDOWN:
+	case WM_LBUTTONUP:
+	case WM_RBUTTONDOWN:
+	case WM_RBUTTONUP:
+	case WM_MBUTTONDOWN:
+	case WM_MBUTTONUP:
+	case WM_MOUSEWHEEL:
+	case WM_XBUTTONDOWN:
+	case WM_XBUTTONUP:
+	case WM_MOUSEHOVER:
+		Mouse::ProcessMessage(message, wParam, lParam);
+		break;
+
+	case WM_KEYDOWN:
+	case WM_SYSKEYDOWN:
+	case WM_KEYUP:
+	case WM_SYSKEYUP:
+		Keyboard::ProcessMessage(message, wParam, lParam);
+		break;
 	case WM_DESTROY:
 		PostQuitMessage(0);
 		break;
