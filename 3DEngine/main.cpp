@@ -32,6 +32,7 @@ ID3D11VertexShader* gVertexShader = nullptr;
 ID3D11PixelShader* gPixelShader = nullptr;
 ID3D11GeometryShader* gGeometryShader = nullptr;
 
+DX::StepTimer stepTimer;
 Game* game;
 
 void InitalizeMatrices(float angle = 0.0f)
@@ -327,7 +328,10 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmdLi
 			}
 			else
 			{
-				game->Update();
+				stepTimer.Tick([&]()
+				{
+					game->Update(stepTimer.GetElapsedSeconds());
+				});
 				game->Render(); //8. Rendera
 				gSwapChain->Present(0, 0); //9. Växla front- och back-buffer
 			}
